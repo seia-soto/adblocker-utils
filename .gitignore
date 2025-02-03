@@ -1,0 +1,4 @@
+/.cache/
+/.tsimp/
+/node_modules/
+.DS_Store
