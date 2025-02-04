@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CliArg, CliArgType } from '../cli.js';
+import { CosmeticFilter, NetworkFilter } from '@ghostery/adblocker';
 
 type Library = typeof import('@ghostery/adblocker');
 
@@ -11,16 +12,25 @@ type Options = {
   artifact: string;
   url: string;
   sourceUrl?: string;
+  skipRegionals: boolean;
 };
 
 async function configure(args: CliArg[]) {
-  const options: Partial<Options> = {};
+  const options: Partial<Options> = {
+    skipRegionals: false,
+  };
   for (const arg of args) {
-    if (arg.type === CliArgType.Option && typeof arg.value !== 'undefined') {
-      if (arg.option === 'a' || arg.option === 'artifact') {
-        options.artifact = arg.value;
-      } else if (arg.option === 's' || arg.option === 'source-url') {
-        options.sourceUrl = arg.value;
+    if (arg.type === CliArgType.Option) {
+      if (typeof arg.value !== 'undefined') {
+        if (arg.option === 'a' || arg.option === 'artifact') {
+          options.artifact = arg.value;
+        } else if (arg.option === 's' || arg.option === 'source-url') {
+          options.sourceUrl = arg.value;
+        }
+      } else {
+        if (arg.option === 'skip-regionals') {
+          options.skipRegionals = true;
+        }
       }
     }
     if (arg.type === CliArgType.Value) {
@@ -176,6 +186,20 @@ function match(
   };
 }
 
+function stringifyFilter(filter: NetworkFilter | CosmeticFilter) {
+  if (filter.isCosmeticFilter()) {
+    if (filter.isScriptInject()) {
+      const parsed = filter.parseScript()!;
+      if (filter.domains === undefined) {
+        return `##+js(${parsed.name}, ${parsed.args.join(', ')})`;
+      } else {
+        return `<hostnames>##+js(${parsed.name}, ${parsed.args.map((arg) => decodeURIComponent(arg)).join(', ')})`;
+      }
+    }
+  }
+  return filter.toString();
+}
+
 export async function queryExt(args: CliArg[]) {
   const options = await configure(args);
   await mkdir('./.cache', { recursive: true });
@@ -188,6 +212,9 @@ export async function queryExt(args: CliArg[]) {
     if (asset.path.endsWith('.json')) {
       continue;
     }
+    if (options.skipRegionals && asset.path.includes('lang')) {
+      continue;
+    }
     console.warn(`[warn] loading "${asset.path}"... ~${Math.floor(asset.data.length / 1024)}KB`);
     const matches = match(lib, asset.data, {
       url: options.url,
@@ -197,12 +224,12 @@ export async function queryExt(args: CliArg[]) {
       `[info] matched ${matches.networkFilters.size} network filters and ${matches.cosmeticFilters.matches.length} cosmetic filters`,
     );
     for (const filter of matches.networkFilters) {
-      console.log(`+ ${filter.toString()}`);
+      console.log(`+ ${stringifyFilter(filter)}`);
     }
     for (const { filter, exception } of matches.cosmeticFilters.matches) {
-      console.log(`+ ${filter.toString()}`);
+      console.log(`+ ${stringifyFilter(filter)}`);
       if (typeof exception !== 'undefined') {
-        console.log(`- ${exception.toString()}`);
+        console.log(`- ${stringifyFilter(exception)}`);
       }
     }
   }
