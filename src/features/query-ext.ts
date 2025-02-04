@@ -13,6 +13,7 @@ type Options = {
   url: string;
   sourceUrl?: string;
   skipRegionals: boolean;
+  env?: string;
 };
 
 async function configure(args: CliArg[]) {
@@ -26,6 +27,8 @@ async function configure(args: CliArg[]) {
           options.artifact = arg.value;
         } else if (arg.option === 's' || arg.option === 'source-url') {
           options.sourceUrl = arg.value;
+        } else if (arg.option === 'e' || arg.option === 'env') {
+          options.env = arg.value;
         }
       } else {
         if (arg.option === 'skip-regionals') {
@@ -166,8 +169,24 @@ function match(
   library: Library,
   data: Uint8Array,
   { url, sourceUrl }: { url: string; sourceUrl?: string | undefined },
+  envConfig: string,
 ) {
+  const env: Map<string, boolean> = new Map();
+  env.set('ext_ghostery', true);
+  if (envConfig.includes('chromium')) {
+    env.set('env_chromium', true);
+    env.set('env_edge', true);
+  }
+  if (envConfig.includes('firefox')) {
+    env.set('env_firefox', true);
+    env.set('cap_replace_modifier', true);
+    env.set('cap_html_filtering', true);
+  }
+  if (envConfig.includes('mobile')) {
+    env.set('env_mobile', true);
+  }
   const engine = library.FiltersEngine.deserialize(data);
+  engine.updateEnv(env);
   const request = library.Request.fromRawDetails({
     url,
     sourceUrl,
@@ -216,10 +235,15 @@ export async function queryExt(args: CliArg[]) {
       continue;
     }
     console.warn(`[warn] loading "${asset.path}"... ~${Math.floor(asset.data.length / 1024)}KB`);
-    const matches = match(lib, asset.data, {
-      url: options.url,
-      sourceUrl: options.sourceUrl,
-    });
+    const matches = match(
+      lib,
+      asset.data,
+      {
+        url: options.url,
+        sourceUrl: options.sourceUrl,
+      },
+      options.env ?? '',
+    );
     console.log(
       `[info] matched ${matches.networkFilters.size} network filters and ${matches.cosmeticFilters.matches.length} cosmetic filters`,
     );
